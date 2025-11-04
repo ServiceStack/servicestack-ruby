@@ -25,3 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation and README
 
 [1.0.0]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v1.0.0
+## [Unreleased]
+
+## [0.1.0] - 2024-11-03
+
+### Added
+- Initial release of ServiceStack Ruby HTTP Client Library
+- HTTP client supporting GET, POST, PUT, PATCH, and DELETE methods
+- JSON request/response handling
+- Configurable timeouts
+- Error handling for HTTP responses
+- Comprehensive test suite
