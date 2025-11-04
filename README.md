@@ -1,5 +1,6 @@
 # ServiceStack Ruby Client
 
+Ruby client library for [ServiceStack](https://servicestack.net/) - a simple, fast, versatile and highly productive full-featured Web and Web Services Framework.
 ServiceStack Ruby HTTP Client Library for consuming ServiceStack web services.
 
 [![Gem Version](https://badge.fury.io/rb/servicestack.svg)](https://badge.fury.io/rb/servicestack)
