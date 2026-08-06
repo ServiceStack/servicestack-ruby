@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3]
+
+### Added
+
+- `npm run bump` / `npm run release` scripts that tag a version and create the
+  GitHub Release, which the `release` workflow publishes to RubyGems
+
 ## [0.1.2]
 
 ### Added
@@ -33,6 +40,7 @@ All notable changes to this project will be documented in this file.
 - Built-in ServiceStack DTOs referenced by generated DTOs (`ResponseStatus`,
   `QueryBase`, `QueryResponse`, `Authenticate`, ...)
 
+[0.1.3]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.0
