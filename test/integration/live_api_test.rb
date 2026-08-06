@@ -162,3 +162,129 @@ class LiveApiTest < Minitest::Test
     assert_equal 'Hello, World!', res.result
   end
 end
+
+# ── AI Chat ──
+
+# DTOs of ServiceStack's AI Chat ChatCompletion API, an OpenAI-compatible
+# Chat Completions endpoint.
+
+class AiTextContent
+  include ServiceStack::DTO
+  attr_accessor :type, :text
+
+  def self.properties
+    {
+      type: { name: 'type' },
+      text: { name: 'text' },
+    }
+  end
+end
+
+class AiMessage
+  include ServiceStack::DTO
+  attr_accessor :role, :content
+
+  def self.properties
+    {
+      role: { name: 'role' },
+      content: { name: 'content' },
+    }
+  end
+end
+
+class ChoiceMessage
+  include ServiceStack::DTO
+  attr_accessor :role, :content, :reasoning
+
+  def self.properties
+    {
+      role: { name: 'role' },
+      content: { name: 'content' },
+      reasoning: { name: 'reasoning' },
+    }
+  end
+end
+
+class Choice
+  include ServiceStack::DTO
+  attr_accessor :index, :finish_reason, :message
+
+  def self.properties
+    {
+      index: { name: 'index' },
+      finish_reason: { name: 'finish_reason' },
+      message: { name: 'message', type: ChoiceMessage },
+    }
+  end
+end
+
+class ChatResponse
+  include ServiceStack::DTO
+  attr_accessor :id, :model, :choices
+
+  def self.properties
+    {
+      id: { name: 'id' },
+      model: { name: 'model' },
+      choices: { name: 'choices', type: [Choice] },
+    }
+  end
+end
+
+class ChatCompletion
+  include ServiceStack::DTO
+  attr_accessor :model, :messages
+
+  def self.properties
+    {
+      model: { name: 'model' },
+      messages: { name: 'messages', type: [AiMessage] },
+    }
+  end
+
+  def response_type = ChatResponse
+  def get_type_name = 'ChatCompletion'
+  def get_method = 'POST'
+end
+
+class ChatCompletionTest < Minitest::Test
+  # Model available on test.servicestack.net
+  CHAT_MODEL = 'openai/gpt-oss-120b'
+
+  def base_url
+    ENV['SERVICESTACK_TEST_URL'] || 'https://test.servicestack.net'
+  end
+
+  def client
+    @client ||= ServiceStack::JsonServiceClient.new(base_url)
+  end
+
+  def test_sends_chat_completion
+    # The ChatCompletion API requires an authenticated User
+    client.authenticate('test', 'test')
+
+    request = ChatCompletion.new(
+      model: CHAT_MODEL,
+      messages: [
+        AiMessage.new(
+          role: 'user',
+          content: [AiTextContent.new(type: 'text', text: 'Capital of France? Answer in 3 words')]
+        )
+      ]
+    )
+
+    begin
+      res = client.send(request)
+    rescue ServiceStack::WebServiceException => e
+      # A shared LLM can be rate limited or temporarily unavailable
+      skip("ChatCompletion unavailable: #{e.message}") if [429, 502, 503, 504].include?(e.status_code)
+      raise
+    end
+
+    refute_empty res.choices
+    assert_instance_of Choice, res.choices.first
+    refute_nil res.choices.first.message.content
+    refute_empty res.choices.first.message.content
+    assert_equal CHAT_MODEL, res.model
+  end
+end
