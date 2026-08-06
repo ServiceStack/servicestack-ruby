@@ -1,120 +1,245 @@
-require 'minitest/autorun'
-require 'webmock/minitest'
-require_relative '../lib/servicestack'
+# frozen_string_literal: true
+
+require_relative 'test_helper'
 
 class TestJsonServiceClient < Minitest::Test
-  def setup
-    @base_url = 'https://api.example.org'
-    @client = ServiceStack::JsonServiceClient.new(@base_url)
+  include TestHelper
+
+  def test_sends_get_request_in_query_string
+    stub_request(:get, "#{BASE_URL}/api/Hello?name=World")
+      .to_return(body: { result: 'Hello, World!' }.to_json)
+
+    res = client.send(Hello.new(name: 'World'))
+
+    assert_instance_of HelloResponse, res
+    assert_equal 'Hello, World!', res.result
   end
 
-  def test_client_initialization
-    assert_equal 'https://api.example.org', @client.base_url
-    assert_equal 60, @client.timeout
+  def test_sends_post_request_in_json_body
+    stub_request(:post, "#{BASE_URL}/api/CreateHello")
+      .with(body: '{"name":"World"}', headers: { 'Content-Type' => 'application/json' })
+      .to_return(body: { result: 'Hello, World!' }.to_json)
+
+    res = client.send(CreateHello.new(name: 'World'))
+
+    assert_equal 'Hello, World!', res.result
   end
 
-  def test_set_credentials
-    @client.set_credentials('user', 'pass')
-    assert_equal 'user', @client.username
-    assert_equal 'pass', @client.password
+  def test_sends_typed_query_response
+    stub_request(:get, "#{BASE_URL}/api/QueryBookings?take=2")
+      .to_return(body: {
+        offset: 0, total: 1,
+        results: [{
+          id: 1, name: 'First Booking', bookingStartDate: '2025-10-31T06:05:01Z',
+          createdBy: 'employee@email.com',
+          discount: { id: 'BOOK10', description: '10% off' },
+        }],
+      }.to_json)
+
+    res = client.send(QueryBookings.new(take: 2))
+
+    assert_equal 1, res.total
+    booking = res.results.first
+    assert_instance_of Booking, booking
+    assert_equal 'First Booking', booking.name
+    # nested DTOs, inherited properties and Dates are converted from their wire names
+    assert_instance_of Coupon, booking.discount
+    assert_equal '10% off', booking.discount.description
+    assert_equal 'employee@email.com', booking.created_by
+    assert_instance_of DateTime, booking.booking_start_date
+    assert_equal 2025, booking.booking_start_date.year
   end
 
-  def test_set_bearer_token
-    @client.set_bearer_token('token123')
-    assert_equal 'token123', @client.bearer_token
+  def test_sends_void_request
+    stub_request(:delete, "#{BASE_URL}/api/DeleteHello?id=1").to_return(body: '')
+
+    assert_nil client.send_void(DeleteHello.new(id: 1))
   end
 
-  def test_post_request_with_hash
-    stub_request(:post, "#{@base_url}/hello")
-      .with(
-        body: '{"name":"World"}',
-        headers: { 'Content-Type' => 'application/json', 'Accept' => 'application/json' }
-      )
-      .to_return(status: 200, body: '{"result":"Hello, World!"}', headers: { 'Content-Type' => 'application/json' })
+  def test_raises_web_service_exception_with_structured_error
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(status: [400, 'Bad Request'], body: error_body)
 
-    response = @client.post({ name: 'World' }, nil, path: '/hello')
-    assert_equal 'Hello, World!', response['result']
-  end
-
-  def test_get_request_with_query_params
-    stub_request(:get, "#{@base_url}/hello?name=World")
-      .with(headers: { 'Accept' => 'application/json' })
-      .to_return(status: 200, body: '{"result":"Hello, World!"}', headers: { 'Content-Type' => 'application/json' })
-
-    response = @client.get({ name: 'World' }, nil, path: '/hello')
-    assert_equal 'Hello, World!', response['result']
-  end
-
-  def test_error_handling
-    stub_request(:post, "#{@base_url}/hello")
-      .to_return(
-        status: 400,
-        body: '{"responseStatus":{"errorCode":"ValidationError","message":"Name is required"}}',
-        headers: { 'Content-Type' => 'application/json' }
-      )
-
-    error = assert_raises(ServiceStack::WebServiceException) do
-      @client.post({ name: '' }, nil, path: '/hello')
-    end
+    error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
 
     assert_equal 400, error.status_code
-    assert_equal 'ValidationError', error.error_code
-    assert_equal 'Name is required', error.error_message
+    assert_equal 'NotEmpty', error.error_code
+    assert_equal "'Name' must not be empty.", error.error_message
+    assert_equal "'Name' must not be empty.", error.field_error('name')
+    assert error.validation_error?
+    refute error.unauthorized?
   end
 
-  def test_bearer_token_authentication
-    @client.set_bearer_token('mytoken')
+  def test_raises_web_service_exception_for_non_json_errors
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(status: [404, 'Not Found'], body: '<html>Not Found</html>')
 
-    stub_request(:post, "#{@base_url}/secure")
-      .with(headers: { 'Authorization' => 'Bearer mytoken' })
-      .to_return(status: 200, body: '{"success":true}')
+    error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
 
-    response = @client.post({ data: 'test' }, nil, path: '/secure')
-    assert response['success']
+    assert error.not_found?
+    assert_equal '<html>Not Found</html>', error.response_body
   end
 
-  def test_custom_headers
-    @client.headers['X-Custom'] = 'value'
+  def test_api_returns_error_status_instead_of_raising
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(status: [400, 'Bad Request'], body: error_body)
 
-    stub_request(:post, "#{@base_url}/hello")
-      .with(headers: { 'X-Custom' => 'value' })
-      .to_return(status: 200, body: '{"result":"ok"}')
+    api = client.api(Hello.new)
 
-    response = @client.post({ name: 'test' }, nil, path: '/hello')
-    assert_equal 'ok', response['result']
+    assert api.failed?
+    assert_equal 'NotEmpty', api.error_code
+    assert_equal "'Name' must not be empty.", api.field_error('Name')
   end
 
-  def test_typed_request_response
-    # Define named classes for the test
-    hello_request_class = Class.new do
-      attr_accessor :name
-      
-      def initialize(name)
-        @name = name
-      end
-      
-      def to_hash
-        { 'name' => @name }
-      end
-      
-      def self.name
-        'Hello'
-      end
-    end
+  def test_api_returns_typed_response
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(body: { result: 'Hello, World!' }.to_json)
 
-    hello_response_class = Class.new do
-      attr_accessor :result
-      
-      def initialize(hash)
-        @result = hash['result']
-      end
-    end
+    api = client.api(Hello.new(name: 'World'))
 
-    stub_request(:post, "#{@base_url}/hello")
-      .to_return(status: 200, body: '{"result":"Hello, Ruby!"}')
+    assert api.succeeded?
+    assert_equal 'Hello, World!', api.response.result
+    assert_nil api.field_error('Name')
+  end
 
-    request = hello_request_class.new('Ruby')
-    response = @client.post(request, hello_response_class)
-    assert_equal 'Hello, Ruby!', response.result
+  def test_sends_bearer_token_and_basic_auth
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'Authorization' => 'Bearer TOKEN' })
+      .to_return(body: '{}')
+
+    client.set_bearer_token('TOKEN')
+    client.send(Hello.new(name: 'World'))
+
+    basic = ServiceStack::JsonServiceClient.new(BASE_URL)
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'Authorization' => 'Basic dXNlcjpwYXNz' })
+      .to_return(body: '{}')
+
+    basic.set_credentials('user', 'pass')
+    basic.send(Hello.new(name: 'World'))
+  end
+
+  def test_sends_custom_headers
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'X-Api-Key' => 'KEY' })
+      .to_return(body: '{}')
+
+    client.set_header('X-Api-Key', 'KEY')
+    client.send(Hello.new(name: 'World'))
+  end
+
+  def test_refreshes_bearer_token_and_retries
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with { |req| req.headers['Authorization'].nil? }
+      .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
+
+    stub_request(:post, "#{BASE_URL}/api/GetAccessToken")
+      .to_return(body: { accessToken: 'NEW_TOKEN' }.to_json)
+
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'Authorization' => 'Bearer NEW_TOKEN' })
+      .to_return(body: { result: 'Hello, World!' }.to_json)
+
+    client.set_refresh_token('REFRESH_TOKEN')
+    res = client.send(Hello.new(name: 'World'))
+
+    assert_equal 'Hello, World!', res.result
+    assert_equal 'NEW_TOKEN', client.bearer_token
+  end
+
+  def test_unauthorized_without_refresh_token_raises
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
+
+    error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
+
+    assert error.unauthorized?
+  end
+
+  def test_sends_batched_requests
+    stub_request(:post, "#{BASE_URL}/api/Hello[]")
+      .with(body: '[{"name":"A"},{"name":"B"}]')
+      .to_return(body: [{ result: 'Hello, A!' }, { result: 'Hello, B!' }].to_json)
+
+    responses = client.send_all([Hello.new(name: 'A'), Hello.new(name: 'B')])
+
+    assert_equal 2, responses.size
+    assert_instance_of HelloResponse, responses.first
+    assert_equal 'Hello, B!', responses.last.result
+  end
+
+  def test_publishes_one_way_request
+    stub_request(:post, "#{BASE_URL}/api/CreateHello").to_return(body: '')
+
+    assert_nil client.publish(CreateHello.new(name: 'World'))
+  end
+
+  def test_sends_request_to_custom_url
+    stub_request(:get, "#{BASE_URL}/hello/World?detailed=true")
+      .to_return(body: { result: 'Hello, World!' }.to_json)
+
+    res = client.get_url('/hello/World', response_as: HelloResponse, args: { detailed: true })
+
+    assert_equal 'Hello, World!', res.result
+  end
+
+  def test_returns_raw_response_body
+    stub_request(:get, "#{BASE_URL}/text").to_return(body: 'plain text')
+
+    assert_equal 'plain text', client.send_url_string('/text')
+  end
+
+  def test_retains_session_cookies
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(body: '{}', headers: { 'Set-Cookie' => 'ss-id=SESSION_ID; path=/; httponly' })
+    client.send(Hello.new(name: '1'))
+
+    assert_equal 'SESSION_ID', client.cookies['ss-id']
+
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'Cookie' => 'ss-id=SESSION_ID' })
+      .to_return(body: '{}')
+    client.send(Hello.new(name: '2'))
+  end
+
+  def test_authenticate_uses_returned_tokens
+    stub_request(:post, "#{BASE_URL}/api/Authenticate")
+      .to_return(body: { userName: 'user', bearerToken: 'BEARER', refreshToken: 'REFRESH' }.to_json)
+
+    res = client.authenticate('user', 'pass')
+
+    assert_equal 'user', res.user_name
+    assert_equal 'BEARER', client.bearer_token
+    assert_equal 'REFRESH', client.refresh_token
+  end
+
+  def test_configures_base_paths
+    assert_equal "#{BASE_URL}/api", client.reply_base_url
+
+    client.set_base_path('')
+    assert_equal "#{BASE_URL}/json/reply", client.reply_base_url
+    assert_equal "#{BASE_URL}/json/oneway", client.oneway_base_url
+
+    client.set_base_path('custom/api')
+    assert_equal "#{BASE_URL}/custom/api", client.reply_base_url
+  end
+
+  def test_raises_for_unfollowed_redirects
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(status: [302, 'Found'], headers: { 'Location' => '/Account/Login' }, body: '')
+
+    error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
+
+    assert_equal 302, error.status_code
+    assert_equal 'Redirect', error.error_code
+    assert_includes error.error_message, '/Account/Login'
+  end
+
+  def test_raises_for_connection_errors
+    stub_request(:get, %r{#{BASE_URL}/api/Hello}).to_raise(Errno::ECONNREFUSED)
+
+    error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
+
+    assert_instance_of Errno::ECONNREFUSED, error.inner_exception
   end
 end

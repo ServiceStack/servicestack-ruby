@@ -1,119 +1,206 @@
-# ServiceStack Ruby Client
+# servicestack-ruby
 
-Ruby client library for [ServiceStack](https://servicestack.net/) - a simple, fast, versatile and highly productive full-featured Web and Web Services Framework.
-ServiceStack Ruby HTTP Client Library for consuming ServiceStack web services.
+Typed Ruby Client Library for consuming [ServiceStack](https://servicestack.net) APIs.
 
-[![Gem Version](https://badge.fury.io/rb/servicestack.svg)](https://badge.fury.io/rb/servicestack)
+- Typed Request/Response DTOs, generated from any ServiceStack API
+- Response Type, route and HTTP Method resolved from the Request DTO
+- Structured `ResponseStatus` errors with field validation errors
+- Auth with Basic Auth, API Keys, JWT Bearer Tokens, Refresh Tokens and Session Cookies
+- Batched Requests, one-way Requests and custom URLs
+- Zero dependencies, only the Ruby standard library
 
-## Installation
+Requires Ruby 3.0+.
 
-Add this line to your application's Gemfile:
+## Install
+
+```bash
+gem install servicestack
+```
+
+Or in your `Gemfile`:
 
 ```ruby
 gem 'servicestack'
 ```
 
-And then execute:
+## Generate Typed DTOs
 
-    $ bundle install
+Generate the Ruby DTOs of any ServiceStack API with the [get-dtos](https://www.npmjs.com/package/get-dtos) tool:
 
-Or install it yourself as:
+```bash
+npx get-dtos ruby https://blazor-vue.web-templates.io
+```
 
-    $ gem install servicestack
+Which downloads a `dtos.rb` containing the typed DTOs of the remote API:
+
+```ruby
+require 'json'
+require 'servicestack'
+
+# @Route("/hello/{Name}")
+class Hello
+    include ServiceStack::DTO
+
+    # @return [String]
+    attr_accessor :name
+
+    def self.properties
+        {
+            name: { name: 'name' },
+        }
+    end
+
+    def response_type() = HelloResponse
+    def get_type_name() = 'Hello'
+    def get_method() = 'GET'
+end
+```
+
+The generated `response_type`, `get_type_name` and `get_method` are what let the
+client resolve each API's Response Type, route and HTTP Method, whilst
+`self.properties` declares the wire name and Type of each property so nested
+DTOs, Dates and collections round-trip correctly.
 
 ## Usage
 
-### Basic Usage
-
 ```ruby
 require 'servicestack'
+require_relative 'dtos'
 
-# Create a client instance
-client = ServiceStack::Client.new('https://api.example.com')
+client = ServiceStack::JsonServiceClient.new('https://blazor-vue.web-templates.io')
 
-# Make a GET request
-response = client.get('users')
-
-# Make a POST request
-response = client.post('users', { name: 'John Doe', email: 'john@example.com' })
-
-# Make a PUT request
-response = client.put('users/1', { name: 'Jane Doe' })
-
-# Make a PATCH request
-response = client.patch('users/1', { email: 'jane@example.com' })
-
-# Make a DELETE request
-response = client.delete('users/1')
+res = client.send(Hello.new(name: 'World')) # res is a HelloResponse
+puts res.result
 ```
 
-### With Query Parameters
+`send` uses the HTTP Method the API is annotated with, use `get`, `post`, `put`,
+`patch` or `delete` to send a Request DTO with a specific HTTP Method:
 
 ```ruby
-# GET request with query parameters
-response = client.get('users', { page: 1, per_page: 10 })
+res = client.post(Hello.new(name: 'World'))
 ```
 
-### Configuring Timeouts
+APIs that don't return a Response Body are sent with `send_void`:
 
 ```ruby
-# Configure custom timeouts (in seconds)
-client = ServiceStack::Client.new(
-  'https://api.example.com',
-  timeout: 30,        # Request timeout
-  open_timeout: 15    # Connection timeout
-)
+client.send_void(DeleteBooking.new(id: 1))
+```
 
-# Or set timeouts after initialization
-client.timeout = 30
-client.open_timeout = 15
+> `JsonServiceClient#send` overrides `Object#send`. Use `__send__` for Ruby's
+> dynamic dispatch, or `send_dto` if you prefer an unambiguous name.
+
+### AutoQuery
+
+AutoQuery APIs return a typed `QueryResponse`, with the query params of their
+base type inherited by the Request DTO:
+
+```ruby
+res = client.send(QueryBookings.new(take: 5, order_by_desc: 'id'))
+
+res.results.each do |booking| # booking is a Booking
+  puts "#{booking.id} #{booking.name}"
+end
 ```
 
 ### Error Handling
 
-The client raises `ServiceStack::Error` for HTTP errors:
+Failed API Requests raise a `WebServiceException` containing the HTTP Status
+Code and the API's structured `ResponseStatus`:
 
 ```ruby
 begin
-  response = client.get('users/999')
-rescue ServiceStack::Error => e
-  puts "Error: #{e.message}"
+  client.send(CreateBooking.new)
+rescue ServiceStack::WebServiceException => e
+  puts e.status_code            # 400
+  puts e.error_code             # "NotEmpty"
+  puts e.error_message          # "'Name' must not be empty."
+  puts e.field_error('Name')    # "'Name' must not be empty."
+  puts e.unauthorized?          # false
 end
 ```
 
-## Development
+Alternatively `api` returns errors in its result instead of raising:
 
-After checking out the repo, run `bundle install` to install dependencies. Then, run `rake test` to run the tests.
-
-To install this gem onto your local machine, run `bundle exec rake install`.
-
-### Running Tests
-
-```bash
-bundle exec rake test
+```ruby
+api = client.api(CreateBooking.new)
+if api.failed?
+  puts api.error_code, api.field_error('Name')
+else
+  puts api.response.id
+end
 ```
 
-### Building the Gem
+Redirects aren't followed, so Services that redirect to a HTML sign in page
+raise a `WebServiceException` with a `Redirect` ErrorCode instead of returning
+an empty Response.
 
-```bash
-bundle exec rake build
+### Authentication
+
+API Keys and JWTs are sent in the Bearer Token Authorization header:
+
+```ruby
+client.set_bearer_token('ak-87949de37e894627a9f6173154e7cafa')
 ```
 
-This will create a `.gem` file in the `pkg` directory.
+HTTP Basic Auth credentials:
 
-### Releasing
+```ruby
+client.set_credentials('username', 'password')
+```
 
-To release a new version:
+Sign in with ServiceStack's Authenticate API, which retains the Session Cookies
+the Server returns and uses any Bearer Token it issues:
 
-1. Update the version number in `lib/servicestack/version.rb`
-2. Update the `CHANGELOG.md` with the changes
-3. Commit the changes
-4. Run `bundle exec rake release` to create a git tag, build the gem, and push it to RubyGems
+```ruby
+auth = client.authenticate('username', 'password')
+```
 
-## Contributing
+When a Refresh Token is configured, expired Bearer Tokens are transparently
+refreshed and the failed Request retried:
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/ServiceStack/servicestack-ruby.
+```ruby
+client.set_refresh_token(refresh_token)
+```
+
+### Batched Requests
+
+```ruby
+responses = client.send_all([Hello.new(name: 'A'), Hello.new(name: 'B')])
+```
+
+Or send a Request to a one-way endpoint that ignores its Response:
+
+```ruby
+client.publish(Hello.new(name: 'World'))
+```
+
+### Custom URLs
+
+```ruby
+res = client.get_url('/hello/World', response_as: HelloResponse)
+res = client.post_url('/hello', body: Hello.new(name: 'World'), response_as: HelloResponse)
+csv = client.send_url_string('/api/QueryBookings.csv')
+```
+
+### Client Configuration
+
+```ruby
+client.set_header('X-Custom', 'Value')
+client.timeout = 30
+client.set_base_path('')  # use the /json/reply pre-defined routes
+
+# Inspect or modify each Request and Response
+client.request_filter = ->(req) { puts req.path }
+client.response_filter = ->(res) { puts res.code }
+```
+
+## Tests
+
+```bash
+rake test              # unit tests
+rake test:integration  # integration tests against test.servicestack.net
+```
 
 ## License
 
-The gem is available as open source under the terms of the [MIT License](https://opensource.org/licenses/MIT).
+BSD-3-Clause. See [LICENSE](LICENSE).
