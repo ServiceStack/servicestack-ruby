@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1]
+
+### Added
+
+- `post_file_with_request` and `post_files_with_request` for uploading files with
+  a Request DTO as a `multipart/form-data` Request, incl. an `UploadFile` that
+  accepts file contents as a String or any IO
+- `post_files_with_request_url` for uploading files to a custom URL
+
 ## [0.1.0]
 
 ### Added
@@ -17,4 +26,5 @@ All notable changes to this project will be documented in this file.
 - Built-in ServiceStack DTOs referenced by generated DTOs (`ResponseStatus`,
   `QueryBase`, `QueryResponse`, `Authenticate`, ...)
 
+[0.1.1]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.0

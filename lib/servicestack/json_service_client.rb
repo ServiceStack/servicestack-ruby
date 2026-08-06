@@ -2,6 +2,7 @@
 
 require 'json'
 require 'net/http'
+require 'securerandom'
 require 'uri'
 require_relative 'dto'
 require_relative 'types'
@@ -17,6 +18,29 @@ module ServiceStack
     DELETE = 'DELETE'
     OPTIONS = 'OPTIONS'
     HEAD = 'HEAD'
+  end
+
+  # A file uploaded in a multipart/form-data Request.
+  #
+  # Its contents can be supplied as a String or any IO that responds to `read`,
+  # e.g. a File or StringIO.
+  class UploadFile
+    attr_accessor :field_name, :file_name, :content_type, :stream
+
+    def initialize(field_name: 'file', file_name: nil, content_type: nil, stream: nil)
+      @field_name = field_name
+      @file_name = file_name
+      @content_type = content_type
+      @stream = stream
+    end
+
+    # The file contents to upload.
+    def contents
+      return @stream unless @stream.respond_to?(:read)
+
+      @stream.binmode if @stream.respond_to?(:binmode)
+      @stream.read
+    end
   end
 
   # Either the typed Response of a successful API Request or the structured
@@ -203,6 +227,42 @@ module ServiceStack
       execute(method, to_absolute_url(path), body, args: args)
     end
 
+    # ── File Uploads ──
+
+    # Uploads a file with a Request DTO as a multipart/form-data Request,
+    # returning its typed Response, e.g:
+    #
+    #   File.open('photo.png', 'rb') do |file|
+    #     client.post_file_with_request(UploadPhoto.new(album: 'Holiday'),
+    #       ServiceStack::UploadFile.new(field_name: 'file', file_name: 'photo.png',
+    #                                    content_type: 'image/png', stream: file))
+    #   end
+    def post_file_with_request(request, file, args: nil)
+      post_files_with_request(request, [file], args: args)
+    end
+
+    # Uploads multiple files with a Request DTO as a multipart/form-data Request.
+    def post_files_with_request(request, files, args: nil)
+      url = create_url_from_dto(HttpMethods::POST, request)
+      post_files_with_request_url(url, request, files, response_as: resolve_response_type(request), args: args)
+    end
+
+    # Uploads files with a Request DTO to a custom relative path or absolute URL.
+    def post_files_with_request_url(path, request, files, response_as: nil, args: nil)
+      boundary = "----ServiceStackFormBoundary#{SecureRandom.hex(12)}"
+      body = multipart_body(boundary, request, files)
+
+      json = execute(HttpMethods::POST, to_absolute_url(path), body, args: args,
+                                                                    content_type: "multipart/form-data; boundary=#{boundary}")
+      return nil if response_as.nil?
+      return json if response_as == String
+
+      parsed = json.to_s.strip.empty? ? {} : JSON.parse(json)
+      return parsed unless response_as.respond_to?(:from_hash)
+
+      response_as.from_hash(parsed)
+    end
+
     # Converts a relative path into an absolute URL of this client.
     def to_absolute_url(path_or_url)
       return path_or_url if path_or_url.to_s.start_with?('http://', 'https://')
@@ -232,11 +292,11 @@ module ServiceStack
       response_type.from_hash(parsed)
     end
 
-    def execute(method, url, body, args: nil, retry_on_auth_failure: true)
+    def execute(method, url, body, args: nil, retry_on_auth_failure: true, content_type: nil)
       url = append_query_string(url, args) if args && !args.empty?
 
       uri = URI.parse(url)
-      request = new_http_request(method, uri, body)
+      request = new_http_request(method, uri, body, content_type: content_type)
 
       @request_filter&.call(request)
       self.class.global_request_filter&.call(request)
@@ -250,7 +310,7 @@ module ServiceStack
 
       status_code = response.code.to_i
       if status_code == 401 && retry_on_auth_failure && refresh_access_token
-        return execute(method, url, body, retry_on_auth_failure: false)
+        return execute(method, url, body, retry_on_auth_failure: false, content_type: content_type)
       end
 
       # Redirects aren't followed, e.g. Services that redirect to a HTML sign in
@@ -264,7 +324,7 @@ module ServiceStack
       raise WebServiceException.new(e.message, inner_exception: e)
     end
 
-    def new_http_request(method, uri, body)
+    def new_http_request(method, uri, body, content_type: nil)
       request_class = case method.to_s.upcase
                       when HttpMethods::GET then Net::HTTP::Get
                       when HttpMethods::POST then Net::HTTP::Post
@@ -288,7 +348,7 @@ module ServiceStack
       request['Cookie'] = @cookies.map { |k, v| "#{k}=#{v}" }.join('; ') unless @cookies.empty?
 
       if body && has_request_body?(method)
-        request['Content-Type'] ||= MIME_TYPE_JSON
+        request['Content-Type'] = content_type || request['Content-Type'] || MIME_TYPE_JSON
         request.body = body.is_a?(String) ? body : JSON.generate(to_hash(body))
       end
 
@@ -400,6 +460,34 @@ module ServiceStack
       return dto.to_hash if dto.respond_to?(:to_hash)
 
       dto
+    end
+
+    # Builds the multipart/form-data body of a file upload Request, sending the
+    # populated Request DTO properties as form fields
+    def multipart_body(boundary, request, files)
+      body = +''
+
+      to_hash(request).each do |name, value|
+        next if value.nil?
+
+        body << "--#{boundary}\r\n"
+        body << "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n"
+        body << "#{qs_value(value)}\r\n"
+      end
+
+      files.each do |file|
+        field_name = file.field_name.to_s.empty? ? 'file' : file.field_name
+        file_name = file.file_name.to_s.empty? ? 'file' : file.file_name
+
+        body << "--#{boundary}\r\n"
+        body << "Content-Disposition: form-data; name=\"#{field_name}\"; filename=\"#{file_name}\"\r\n"
+        body << "Content-Type: #{file.content_type || 'application/octet-stream'}\r\n\r\n"
+        body << file.contents.to_s.dup.force_encoding(Encoding::BINARY)
+        body << "\r\n"
+      end
+
+      body << "--#{boundary}--\r\n"
+      body.force_encoding(Encoding::BINARY)
     end
 
     def has_request_body?(method)

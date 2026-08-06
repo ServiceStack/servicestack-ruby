@@ -174,6 +174,22 @@ Or send a Request to a one-way endpoint that ignores its Response:
 client.publish(Hello.new(name: 'World'))
 ```
 
+### Uploading Files
+
+Use `post_file_with_request` to upload a file with an API Request, whose contents
+can be a String or any IO:
+
+```ruby
+res = File.open('photo.png', 'rb') do |file|
+  client.post_file_with_request(UploadPhoto.new(album: 'Holiday'),
+    ServiceStack::UploadFile.new(field_name: 'file', file_name: 'photo.png',
+                                 content_type: 'image/png', stream: file))
+end
+```
+
+The Request DTO's populated properties are sent as form fields alongside the file.
+To upload multiple files use `post_files_with_request`.
+
 ### Custom URLs
 
 ```ruby

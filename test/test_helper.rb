@@ -93,12 +93,12 @@ end
 module TestHelper
   BASE_URL = 'https://example.org'
 
-  def error_body(error_code = 'NotEmpty', message = "'Name' must not be empty.")
+  def error_body(error_code = 'NotEmpty', message = "'Name' must not be empty.", field_name = 'Name')
     {
       responseStatus: {
         errorCode: error_code,
         message: message,
-        errors: [{ errorCode: error_code, fieldName: 'Name', message: message }],
+        errors: [{ errorCode: error_code, fieldName: field_name, message: message }],
       },
     }.to_json
   end
