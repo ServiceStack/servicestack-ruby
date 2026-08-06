@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.4]
+
+### Changed
+
+- Bumped GitHub Actions to their latest major versions, no library changes
+
 ## [0.1.3]
 
 ### Added
@@ -40,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Built-in ServiceStack DTOs referenced by generated DTOs (`ResponseStatus`,
   `QueryBase`, `QueryResponse`, `Authenticate`, ...)
 
+[0.1.4]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.4
 [0.1.3]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.3
 [0.1.2]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ServiceStack/servicestack-ruby/releases/tag/v0.1.1
