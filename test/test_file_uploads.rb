@@ -13,7 +13,7 @@ class UploadPhoto
   def get_method = 'POST'
 end
 
-class TestFileUploads < Minitest::Test
+class FileUploadsTest < Minitest::Test
   include TestHelper
 
   def test_posts_file_with_request

@@ -6,21 +6,21 @@ class TestJsonServiceClient < Minitest::Test
   include TestHelper
 
   def test_sends_get_request_in_query_string
-    stub_request(:get, "#{BASE_URL}/api/Hello?name=World")
+    stub_request(:get, "#{BASE_URL}/api/HelloGet?id=1")
       .to_return(body: { result: 'Hello, World!' }.to_json)
 
-    res = client.send(Hello.new(name: 'World'))
+    res = client.send(HelloGet.new(id: 1))
 
-    assert_instance_of HelloResponse, res
+    assert_instance_of HelloVerbResponse, res
     assert_equal 'Hello, World!', res.result
   end
 
   def test_sends_post_request_in_json_body
-    stub_request(:post, "#{BASE_URL}/api/CreateHello")
-      .with(body: '{"name":"World"}', headers: { 'Content-Type' => 'application/json' })
+    stub_request(:post, "#{BASE_URL}/api/Hello")
+      .with(body: '{"name":"World","title":"Mr"}', headers: { 'Content-Type' => 'application/json' })
       .to_return(body: { result: 'Hello, World!' }.to_json)
 
-    res = client.send(CreateHello.new(name: 'World'))
+    res = client.send(Hello.new(name: 'World', title: 'Mr'))
 
     assert_equal 'Hello, World!', res.result
   end
@@ -51,13 +51,13 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_sends_void_request
-    stub_request(:delete, "#{BASE_URL}/api/DeleteHello?id=1").to_return(body: '')
+    stub_request(:delete, "#{BASE_URL}/api/DeleteBooking?id=1").to_return(body: '')
 
-    assert_nil client.send_void(DeleteHello.new(id: 1))
+    assert_nil client.send_void(DeleteBooking.new(id: 1))
   end
 
   def test_raises_web_service_exception_with_structured_error
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(status: [400, 'Bad Request'], body: error_body)
 
     error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
@@ -71,7 +71,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_raises_web_service_exception_for_non_json_errors
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(status: [404, 'Not Found'], body: '<html>Not Found</html>')
 
     error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
@@ -81,7 +81,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_api_returns_error_status_instead_of_raising
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(status: [400, 'Bad Request'], body: error_body)
 
     api = client.api(Hello.new)
@@ -92,7 +92,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_api_returns_typed_response
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(body: { result: 'Hello, World!' }.to_json)
 
     api = client.api(Hello.new(name: 'World'))
@@ -103,7 +103,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_sends_bearer_token_and_basic_auth
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'Authorization' => 'Bearer TOKEN' })
       .to_return(body: '{}')
 
@@ -111,7 +111,7 @@ class TestJsonServiceClient < Minitest::Test
     client.send(Hello.new(name: 'World'))
 
     basic = ServiceStack::JsonServiceClient.new(BASE_URL)
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'Authorization' => 'Basic dXNlcjpwYXNz' })
       .to_return(body: '{}')
 
@@ -120,7 +120,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_sends_custom_headers
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'X-Api-Key' => 'KEY' })
       .to_return(body: '{}')
 
@@ -129,14 +129,14 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_refreshes_bearer_token_and_retries
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with { |req| req.headers['Authorization'].nil? }
       .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
 
     stub_request(:post, "#{BASE_URL}/api/GetAccessToken")
       .to_return(body: { accessToken: 'NEW_TOKEN' }.to_json)
 
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'Authorization' => 'Bearer NEW_TOKEN' })
       .to_return(body: { result: 'Hello, World!' }.to_json)
 
@@ -148,7 +148,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_unauthorized_without_refresh_token_raises
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
 
     error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
@@ -169,9 +169,9 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_publishes_one_way_request
-    stub_request(:post, "#{BASE_URL}/api/CreateHello").to_return(body: '')
+    stub_request(:post, "#{BASE_URL}/api/HelloVoid").to_return(body: '')
 
-    assert_nil client.publish(CreateHello.new(name: 'World'))
+    assert_nil client.publish(HelloVoid.new(name: 'World'))
   end
 
   def test_sends_request_to_custom_url
@@ -190,13 +190,13 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_retains_session_cookies
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(body: '{}', headers: { 'Set-Cookie' => 'ss-id=SESSION_ID; path=/; httponly' })
     client.send(Hello.new(name: '1'))
 
     assert_equal 'SESSION_ID', client.cookies['ss-id']
 
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'Cookie' => 'ss-id=SESSION_ID' })
       .to_return(body: '{}')
     client.send(Hello.new(name: '2'))
@@ -226,11 +226,11 @@ class TestJsonServiceClient < Minitest::Test
 
   def test_on_authentication_required_retries_once
     requests = 0
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with { |req| requests += 1; req.headers['Authorization'].nil? }
       .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
 
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'Authorization' => 'Bearer TOKEN' })
       .to_return(body: { result: 'Authenticated' }.to_json)
 
@@ -242,11 +242,11 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_on_authentication_required_supports_zero_arity_callbacks
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with { |req| req.headers['Authorization'].nil? }
       .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
 
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'Authorization' => 'Bearer TOKEN' })
       .to_return(body: { result: 'Authenticated' }.to_json)
 
@@ -262,7 +262,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_on_authentication_required_failure_returns_original_401
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
 
     client.on_authentication_required = ->(_c) { raise 'auth server down' }
@@ -273,14 +273,14 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_refresh_token_takes_precedence_over_callback
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with { |req| req.headers['Authorization'].nil? }
       .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
 
     stub_request(:post, "#{BASE_URL}/api/GetAccessToken")
       .to_return(body: { accessToken: 'REFRESHED' }.to_json)
 
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .with(headers: { 'Authorization' => 'Bearer REFRESHED' })
       .to_return(body: { result: 'Hello, World!' }.to_json)
 
@@ -296,7 +296,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_raises_for_unfollowed_redirects
-    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+    stub_request(:post, %r{#{BASE_URL}/api/Hello})
       .to_return(status: [302, 'Found'], headers: { 'Location' => '/Account/Login' }, body: '')
 
     error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
@@ -307,7 +307,7 @@ class TestJsonServiceClient < Minitest::Test
   end
 
   def test_raises_for_connection_errors
-    stub_request(:get, %r{#{BASE_URL}/api/Hello}).to_raise(Errno::ECONNREFUSED)
+    stub_request(:post, %r{#{BASE_URL}/api/Hello}).to_raise(Errno::ECONNREFUSED)
 
     error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
 

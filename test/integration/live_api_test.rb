@@ -11,90 +11,9 @@ $LOAD_PATH.unshift File.expand_path('../../lib', __dir__)
 require 'servicestack'
 require 'minitest/autorun'
 
-# Hand-written DTOs matching the remote Services, generated DTOs have the same shape.
-
-class IntegrationHelloResponse
-  include ServiceStack::DTO
-  attr_accessor :result
-
-  def self.properties = { result: { name: 'result' } }
-end
-
-class IntegrationHello
-  include ServiceStack::DTO
-  attr_accessor :name
-
-  def self.properties = { name: { name: 'name' } }
-
-  def response_type = IntegrationHelloResponse
-  def get_type_name = 'Hello'
-  def get_method = 'GET'
-end
-
-class ThrowValidationResponse
-  include ServiceStack::DTO
-  attr_accessor :age, :email, :response_status
-
-  def self.properties
-    {
-      age: { name: 'age' },
-      email: { name: 'email' },
-      response_status: { name: 'responseStatus', type: ServiceStack::ResponseStatus },
-    }
-  end
-end
-
-class ThrowValidation
-  include ServiceStack::DTO
-  attr_accessor :age, :email
-
-  def self.properties
-    {
-      age: { name: 'age' },
-      email: { name: 'email' },
-    }
-  end
-
-  def response_type = ThrowValidationResponse
-  def get_type_name = 'ThrowValidation'
-  def get_method = 'POST'
-end
-
-class ThrowTypeResponse
-  include ServiceStack::DTO
-  attr_accessor :response_status
-
-  def self.properties
-    { response_status: { name: 'responseStatus', type: ServiceStack::ResponseStatus } }
-  end
-end
-
-class ThrowType
-  include ServiceStack::DTO
-  attr_accessor :type, :message
-
-  def self.properties
-    {
-      type: { name: 'type' },
-      message: { name: 'message' },
-    }
-  end
-
-  def response_type = ThrowTypeResponse
-  def get_type_name = 'ThrowType'
-  def get_method = 'GET'
-end
-
-class HelloSecure
-  include ServiceStack::DTO
-  attr_accessor :name
-
-  def self.properties = { name: { name: 'name' } }
-
-  def response_type = IntegrationHelloResponse
-  def get_type_name = 'HelloSecure'
-  def get_method = 'GET'
-end
+# Typed DTOs generated from https://test.servicestack.net with:
+#   npx get-dtos ruby https://test.servicestack.net
+require_relative '../dtos'
 
 class LiveApiTest < Minitest::Test
   def base_url
@@ -106,9 +25,9 @@ class LiveApiTest < Minitest::Test
   end
 
   def test_sends_typed_request
-    res = client.send(IntegrationHello.new(name: 'World'))
+    res = client.send(Hello.new(name: 'World', title: 'Mr'))
 
-    assert_equal 'Hello, World!', res.result
+    assert_equal 'Hello, Mr. World!', res.result
   end
 
   def test_returns_validation_errors
@@ -149,7 +68,7 @@ class LiveApiTest < Minitest::Test
   end
 
   def test_sends_batched_requests
-    responses = client.send_all([IntegrationHello.new(name: 'A'), IntegrationHello.new(name: 'B')])
+    responses = client.send_all([Hello.new(name: 'A'), Hello.new(name: 'B')])
 
     assert_equal 2, responses.size
     assert_equal 'Hello, A!', responses.first.result
@@ -157,96 +76,13 @@ class LiveApiTest < Minitest::Test
   end
 
   def test_sends_request_to_custom_route
-    res = client.get_url('/hello/World', response_as: IntegrationHelloResponse)
+    res = client.get_url('/hello/World', response_as: HelloResponse)
 
     assert_equal 'Hello, World!', res.result
   end
 end
 
-# ── AI Chat ──
-
-# DTOs of ServiceStack's AI Chat ChatCompletion API, an OpenAI-compatible
-# Chat Completions endpoint.
-
-class AiTextContent
-  include ServiceStack::DTO
-  attr_accessor :type, :text
-
-  def self.properties
-    {
-      type: { name: 'type' },
-      text: { name: 'text' },
-    }
-  end
-end
-
-class AiMessage
-  include ServiceStack::DTO
-  attr_accessor :role, :content
-
-  def self.properties
-    {
-      role: { name: 'role' },
-      content: { name: 'content' },
-    }
-  end
-end
-
-class ChoiceMessage
-  include ServiceStack::DTO
-  attr_accessor :role, :content, :reasoning
-
-  def self.properties
-    {
-      role: { name: 'role' },
-      content: { name: 'content' },
-      reasoning: { name: 'reasoning' },
-    }
-  end
-end
-
-class Choice
-  include ServiceStack::DTO
-  attr_accessor :index, :finish_reason, :message
-
-  def self.properties
-    {
-      index: { name: 'index' },
-      finish_reason: { name: 'finish_reason' },
-      message: { name: 'message', type: ChoiceMessage },
-    }
-  end
-end
-
-class ChatResponse
-  include ServiceStack::DTO
-  attr_accessor :id, :model, :choices
-
-  def self.properties
-    {
-      id: { name: 'id' },
-      model: { name: 'model' },
-      choices: { name: 'choices', type: [Choice] },
-    }
-  end
-end
-
-class ChatCompletion
-  include ServiceStack::DTO
-  attr_accessor :model, :messages
-
-  def self.properties
-    {
-      model: { name: 'model' },
-      messages: { name: 'messages', type: [AiMessage] },
-    }
-  end
-
-  def response_type = ChatResponse
-  def get_type_name = 'ChatCompletion'
-  def get_method = 'POST'
-end
-
+# Sends a Request to ServiceStack AI Chat's OpenAI-compatible ChatCompletion API
 class ChatCompletionTest < Minitest::Test
   # Model available on test.servicestack.net
   CHAT_MODEL = 'openai/gpt-oss-120b'
@@ -268,6 +104,7 @@ class ChatCompletionTest < Minitest::Test
       messages: [
         AiMessage.new(
           role: 'user',
+          # Content parts are polymorphic, e.g. text, image_url or input_audio
           content: [AiTextContent.new(type: 'text', text: 'Capital of France? Answer in 3 words')]
         )
       ]
