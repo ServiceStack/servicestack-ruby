@@ -224,6 +224,77 @@ class TestJsonServiceClient < Minitest::Test
     assert_equal "#{BASE_URL}/custom/api", client.reply_base_url
   end
 
+  def test_on_authentication_required_retries_once
+    requests = 0
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with { |req| requests += 1; req.headers['Authorization'].nil? }
+      .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
+
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'Authorization' => 'Bearer TOKEN' })
+      .to_return(body: { result: 'Authenticated' }.to_json)
+
+    client.on_authentication_required = ->(c) { c.set_bearer_token('TOKEN') }
+    res = client.send(Hello.new(name: 'World'))
+
+    assert_equal 'Authenticated', res.result
+    assert_equal 1, requests
+  end
+
+  def test_on_authentication_required_supports_zero_arity_callbacks
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with { |req| req.headers['Authorization'].nil? }
+      .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
+
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'Authorization' => 'Bearer TOKEN' })
+      .to_return(body: { result: 'Authenticated' }.to_json)
+
+    called = false
+    client.on_authentication_required = lambda {
+      called = true
+      client.set_bearer_token('TOKEN')
+    }
+    res = client.send(Hello.new(name: 'World'))
+
+    assert called
+    assert_equal 'Authenticated', res.result
+  end
+
+  def test_on_authentication_required_failure_returns_original_401
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
+
+    client.on_authentication_required = ->(_c) { raise 'auth server down' }
+    error = assert_raises(ServiceStack::WebServiceException) { client.send(Hello.new) }
+
+    assert error.unauthorized?
+    assert_equal 'Unauthorized', error.error_code
+  end
+
+  def test_refresh_token_takes_precedence_over_callback
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with { |req| req.headers['Authorization'].nil? }
+      .to_return(status: [401, 'Unauthorized'], body: error_body('Unauthorized', 'Unauthorized'))
+
+    stub_request(:post, "#{BASE_URL}/api/GetAccessToken")
+      .to_return(body: { accessToken: 'REFRESHED' }.to_json)
+
+    stub_request(:get, %r{#{BASE_URL}/api/Hello})
+      .with(headers: { 'Authorization' => 'Bearer REFRESHED' })
+      .to_return(body: { result: 'Hello, World!' }.to_json)
+
+    called = false
+    client.set_refresh_token('REFRESH_TOKEN')
+    client.on_authentication_required = ->(_c) { called = true }
+
+    res = client.send(Hello.new(name: 'World'))
+
+    assert_equal 'Hello, World!', res.result
+    assert_equal 'REFRESHED', client.bearer_token
+    refute called, 'expected the Refresh Token to be used instead of the callback'
+  end
+
   def test_raises_for_unfollowed_redirects
     stub_request(:get, %r{#{BASE_URL}/api/Hello})
       .to_return(status: [302, 'Found'], headers: { 'Location' => '/Account/Login' }, body: '')

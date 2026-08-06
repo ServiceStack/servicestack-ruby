@@ -162,6 +162,25 @@ refreshed and the failed Request retried:
 client.set_refresh_token(refresh_token)
 ```
 
+### Transparently handle 401 Unauthorized Responses
+
+If the Server returns a 401 Unauthorized Response either because the client was
+unauthenticated or its Bearer Token or API Key had expired, use the
+`on_authentication_required` callback to re-configure the client before the
+original Request is automatically retried:
+
+```ruby
+client.on_authentication_required = lambda { |c|
+  c.authenticate(user_name, password)
+}
+
+# Automatically retries Requests returning 401 Responses
+res = client.send(Secured.new)
+```
+
+A configured Refresh Token takes precedence over the callback, which is only
+used when no Refresh Token is set or refreshing it failed.
+
 ### Batched Requests
 
 ```ruby

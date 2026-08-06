@@ -71,7 +71,7 @@ module ServiceStack
     attr_accessor :base_url, :reply_base_url, :oneway_base_url, :headers,
                   :bearer_token, :refresh_token, :refresh_token_uri,
                   :user_name, :password, :request_filter, :response_filter,
-                  :timeout, :cookies
+                  :timeout, :cookies, :on_authentication_required
 
     class << self
       # Filters applied to every Request and Response of all clients.
@@ -309,7 +309,7 @@ module ServiceStack
       capture_cookies(response)
 
       status_code = response.code.to_i
-      if status_code == 401 && retry_on_auth_failure && refresh_access_token
+      if status_code == 401 && retry_on_auth_failure && handle_authentication_required
         return execute(method, url, body, retry_on_auth_failure: false, content_type: content_type)
       end
 
@@ -373,6 +373,26 @@ module ServiceStack
         name, _, value = pair.partition('=')
         @cookies[name.strip] = value.strip unless name.strip.empty?
       end
+    end
+
+    # Re-authenticates the client after a Request returned 401 Unauthorized,
+    # returning whether the Request should be retried.
+    #
+    # Uses the Refresh Token when configured, otherwise the
+    # `on_authentication_required` callback.
+    def handle_authentication_required
+      return true if refresh_access_token
+      return false if @on_authentication_required.nil?
+
+      if @on_authentication_required.arity.zero?
+        @on_authentication_required.call
+      else
+        @on_authentication_required.call(self)
+      end
+      true
+    rescue StandardError
+      # Re-authenticating failed, return the original 401 Response
+      false
     end
 
     def refresh_access_token
