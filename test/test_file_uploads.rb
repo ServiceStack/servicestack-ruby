@@ -2,42 +2,34 @@
 
 require_relative 'test_helper'
 
-class UploadPhoto
-  include ServiceStack::DTO
-  attr_accessor :album
-
-  def self.properties = { album: { name: 'album' } }
-
-  def response_type = HelloResponse
-  def get_type_name = 'UploadPhoto'
-  def get_method = 'POST'
-end
-
 class FileUploadsTest < Minitest::Test
   include TestHelper
 
   def test_posts_file_with_request
     body = nil
     content_type = nil
-    stub_request(:post, "#{BASE_URL}/api/UploadPhoto")
+    stub_request(:post, "#{BASE_URL}/api/TestFileUploads")
       .with { |req|
         body = req.body.dup
         content_type = req.headers['Content-Type']
         true
       }
-      .to_return(body: { result: 'Uploaded' }.to_json)
+      .to_return(body: { refId: 'Holiday', files: [{ name: 'file', fileName: 'photo.png' }] }.to_json)
 
     res = client.post_file_with_request(
-      UploadPhoto.new(album: 'Holiday'),
+      TestFileUploads.new(ref_id: 'Holiday'),
       ServiceStack::UploadFile.new(field_name: 'file', file_name: 'photo.png',
                                    content_type: 'image/png', stream: 'PNG-CONTENTS')
     )
 
-    assert_equal 'Uploaded', res.result
+    assert_instance_of TestFileUploadsResponse, res
+    assert_equal 'Holiday', res.ref_id
+    assert_instance_of UploadInfo, res.files.first
+    assert_equal 'photo.png', res.files.first.file_name
     assert_match %r{^multipart/form-data; boundary=----ServiceStackFormBoundary}, content_type
 
-    # Request DTO properties are sent as form fields
-    assert_includes body, 'Content-Disposition: form-data; name="album"'
+    # Request DTO properties are sent as form fields, using their wire names
+    assert_includes body, 'Content-Disposition: form-data; name="refId"'
     assert_includes body, 'Holiday'
 
     # Files are sent with their filename and Content-Type
@@ -48,11 +40,11 @@ class FileUploadsTest < Minitest::Test
 
   def test_posts_multiple_files
     body = nil
-    stub_request(:post, "#{BASE_URL}/api/UploadPhoto")
+    stub_request(:post, "#{BASE_URL}/api/TestFileUploads")
       .with { |req| body = req.body.dup; true }
-      .to_return(body: { result: 'Uploaded' }.to_json)
+      .to_return(body: { refId: 'Holiday' }.to_json)
 
-    client.post_files_with_request(UploadPhoto.new(album: 'Holiday'), [
+    client.post_files_with_request(TestFileUploads.new(ref_id: 'Holiday'), [
       ServiceStack::UploadFile.new(field_name: 'file1', file_name: 'a.txt', stream: 'AAA'),
       ServiceStack::UploadFile.new(field_name: 'file2', file_name: 'b.txt', stream: 'BBB')
     ])
@@ -67,13 +59,13 @@ class FileUploadsTest < Minitest::Test
 
   def test_uploads_io_streams
     body = nil
-    stub_request(:post, "#{BASE_URL}/api/UploadPhoto")
+    stub_request(:post, "#{BASE_URL}/api/TestFileUploads")
       .with { |req| body = req.body.dup; true }
       .to_return(body: '{}')
 
     require 'stringio'
     client.post_file_with_request(
-      UploadPhoto.new,
+      TestFileUploads.new,
       ServiceStack::UploadFile.new(file_name: 'stream.txt', stream: StringIO.new('IO-CONTENTS'))
     )
 
@@ -83,16 +75,16 @@ class FileUploadsTest < Minitest::Test
   end
 
   def test_raises_web_service_exception_on_failed_upload
-    stub_request(:post, "#{BASE_URL}/api/UploadPhoto")
+    stub_request(:post, "#{BASE_URL}/api/TestFileUploads")
       .to_return(status: [400, 'Bad Request'],
-                 body: error_body('NotEmpty', "'Album' must not be empty.", 'Album'))
+                 body: error_body('NotEmpty', "'RefId' must not be empty.", 'RefId'))
 
     error = assert_raises(ServiceStack::WebServiceException) do
-      client.post_file_with_request(UploadPhoto.new,
+      client.post_file_with_request(TestFileUploads.new,
                                     ServiceStack::UploadFile.new(file_name: 'a.txt', stream: 'A'))
     end
 
     assert_equal 400, error.status_code
-    assert_equal "'Album' must not be empty.", error.field_error('Album')
+    assert_equal "'RefId' must not be empty.", error.field_error('RefId')
   end
 end
